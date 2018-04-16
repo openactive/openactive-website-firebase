@@ -1,10 +1,27 @@
+const admin = require('firebase-admin');
 const functions = require('firebase-functions');
 const request = require('request');
 const md5 = require('md5');
 
 // Initialize the default app
-var admin = require('firebase-admin');
 admin.initializeApp(functions.config().firebase);
+
+var db = admin.firestore();
+
+
+//Parse out JSON encoded string without exec
+/*
+var key = JSON.parse('{ "value" : "' + functions.config().fb.key + '" }').value;
+
+admin.initializeApp({
+  credential: admin.credential.cert({
+    projectId: 'openactive-live',
+    clientEmail: 'firebase-adminsdk-2mgoh@openactive-live.iam.gserviceaccount.com',
+    privateKey: key
+  }),
+  databaseURL: 'https://openactive-live.firebaseio.com'
+});
+*/
 
 var MAILCHIMP_LIST_ID = "1665f95799";
 
@@ -86,6 +103,22 @@ function removeFromMailingList(email) {
 
 }
 
+function refreshBookingSystemCount(system) {
+  var votes = db.collection("organisations").where("booking-system", "==", system).get().then(votes => {
+    console.log(votes.size);
+    return db.collection("bookingsystems").doc(system).set({
+      votes: votes.size
+    });
+  }).catch(error => {
+    console.log("Booking count error: " + error)
+  });
+}
+
+function refreshBookingSystemCounts(...systems) {
+  for (i = 0; i < systems.length; i++) { 
+      if (systems[i]) refreshBookingSystemCount(systems[i]);
+  }
+}
 
 exports.modifyUser = functions.firestore
     .document('users/{userID}')
@@ -108,6 +141,12 @@ exports.modifyUser = functions.firestore
           return false;
         }
       } 
+
+      if ( (oldDocument["user-booking-system"] || "") !== (newDocument["user-booking-system"] || "") ) {
+        refreshBookingSystemCounts(oldDocument["user-booking-system"], newDocument["user-booking-system"])
+      } else {
+        refreshBookingSystemCounts(newDocument["user-booking-system"])
+      }
 
       //Only register for mailing list if they've ticked the box
       if (newDocument && newDocument['mailing']) {
